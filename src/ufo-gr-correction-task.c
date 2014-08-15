@@ -21,10 +21,14 @@
 
 
 struct _UfoGrCorrectionTaskPrivate {
+    gfloat *corrected_flats;
     gboolean fix_nan_and_inf;
     guint n_flat_fields;
     guint counter;
     gsize n_pixels_image;
+    gsize n_total_bytes;
+    guint n_outputs;
+    guint output_counter;
 };
 
 static void ufo_task_interface_init (UfoTaskIface *iface);
@@ -74,6 +78,8 @@ ufo_gr_correction_task_get_requisition (UfoTask *task,
     requisition->dims[2] = priv->n_flat_fields;
 
     priv->n_pixels_image = requisition->dims[0] * requisition->dims[1];
+    n_total_bytes = sizeof(gfloat) * requisition->dims[0] * requisition->dims[1] * requisition->dims[2];
+    corrected_flats = (gfloat *) g_malloc0(n_total_bytes);
 }
 
 static guint
@@ -85,14 +91,13 @@ ufo_gr_correction_task_get_num_inputs (UfoTask *task)
 static guint
 ufo_gr_correction_task_get_num_dimensions (UfoTask *task, guint input)
 {
-    g_return_val_if_fail (input <= 1, 0);
-    return 1;
+    return 3;
 }
 
 static UfoTaskMode
 ufo_gr_correction_task_get_mode (UfoTask *task)
 {
-    return UFO_TASK_MODE_PROCESSOR | UFO_TASK_MODE_CPU;
+    return UFO_TASK_MODE_REDUCTOR;
 }
 
 static gboolean
@@ -105,17 +110,18 @@ ufo_gr_correction_task_process (UfoTask *task,
     UfoProfiler *profiler;
     gfloat *dark_data;
     gfloat *flat_data;
-    gfloat *out_data;
 
     gfloat corrected_value;
     gsize n_pixels_image;
 
     priv = UFO_GR_CORRECTION_TASK_GET_PRIVATE (task);
 
+    if (priv->counter > priv->n_flat_fields)
+        return FALSE;
+
     dark_data = ufo_buffer_get_host_array (inputs[0], NULL);
     flat_data = ufo_buffer_get_host_array (inputs[1], NULL);
 
-    out_data = ufo_buffer_get_host_array (output, NULL);
     profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
 
     ufo_profiler_start (profiler, UFO_PROFILER_TIMER_CPU);
@@ -127,15 +133,14 @@ ufo_gr_correction_task_process (UfoTask *task,
             corrected_value = 0.0;
         }
 
-        out_data[priv->counter * priv->n_pixels_image + i] = corrected_value;
+        corrected_flats[priv->counter * priv->n_pixels_image + i] = corrected_value;
     }
 
     ufo_profiler_stop (profiler, UFO_PROFILER_TIMER_CPU);
 
+    printf("ufo_gr_correction_task_process [counter = %d]\n", priv->counter);
+
     priv->counter++;
-
-    printf("ufo_gr_correction_task_process\n");
-
     return TRUE;
 }
 
@@ -144,7 +149,21 @@ ufo_gr_correction_task_generate (UfoTask *task,
                                  UfoBuffer *output,
                                  UfoRequisition *requisition)
 {
+    UfoGrCorrectionTaskPrivate *priv;
+    gfloat *out_data;
+
+    priv = UFO_GR_CORRECTION_TASK_GET_PRIVATE (task);
+
+    if (priv->output_counter == priv->n_outputs) {
+        return FALSE;
+    }
+
     printf("ufo_gr_correction_task_generate\n");
+
+    out_data = ufo_buffer_get_host_array (output, NULL);
+    memcpy(out_data, corrected_flats, n_total_bytes);
+
+    priv->output_counter++;
     return TRUE;
 }
 
@@ -205,6 +224,7 @@ ufo_task_interface_init (UfoTaskIface *iface)
     iface->get_mode = ufo_gr_correction_task_get_mode;
     iface->get_requisition = ufo_gr_correction_task_get_requisition;
     iface->process = ufo_gr_correction_task_process;
+    iface->generate = ufo_gr_correction_task_generate;
 }
 
 static void
@@ -244,4 +264,6 @@ ufo_gr_correction_task_init(UfoGrCorrectionTask *self)
     self->priv->fix_nan_and_inf = FALSE;
     self->priv->n_flat_fields = 1;
     self->priv->counter = 0;
+    self->priv->n_outputs = 1;
+    self->priv->output_counter = 0;
 }
