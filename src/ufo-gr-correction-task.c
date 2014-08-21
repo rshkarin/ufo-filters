@@ -56,9 +56,11 @@ ufo_gr_correction_task_new (void)
 
 static void
 ufo_gr_correction_task_setup (UfoTask *task,
-                                      UfoResources *resources,
-                                      GError **error)
+                              UfoResources *resources,
+                              GError **error)
 {
+    UfoGrCorrectionTaskPrivate *priv;
+    priv = UFO_GR_CORRECTION_TASK_GET_PRIVATE (task);
 }
 
 static void
@@ -70,7 +72,7 @@ ufo_gr_correction_task_get_requisition (UfoTask *task,
     UfoRequisition in_req;
 
     priv = UFO_GR_CORRECTION_TASK_GET_PRIVATE (task);
-    ufo_buffer_get_requisition (inputs[0], &in_req);
+    ufo_buffer_get_requisition (inputs[1], &in_req);
 
     requisition->n_dims = 3;
     requisition->dims[0] = in_req.dims[0];
@@ -78,8 +80,8 @@ ufo_gr_correction_task_get_requisition (UfoTask *task,
     requisition->dims[2] = priv->n_flat_fields;
 
     priv->n_pixels_image = requisition->dims[0] * requisition->dims[1];
-    n_total_bytes = sizeof(gfloat) * requisition->dims[0] * requisition->dims[1] * requisition->dims[2];
-    corrected_flats = (gfloat *) g_malloc0(n_total_bytes);
+    priv->n_total_bytes = sizeof(gfloat) * requisition->dims[0] * requisition->dims[1] * requisition->dims[2];
+    priv->corrected_flats = (gfloat *) g_malloc0(priv->n_total_bytes);
 }
 
 static guint
@@ -97,7 +99,7 @@ ufo_gr_correction_task_get_num_dimensions (UfoTask *task, guint input)
 static UfoTaskMode
 ufo_gr_correction_task_get_mode (UfoTask *task)
 {
-    return UFO_TASK_MODE_REDUCTOR;
+    return UFO_TASK_MODE_REDUCTOR | UFO_TASK_MODE_CPU;
 }
 
 static gboolean
@@ -112,11 +114,10 @@ ufo_gr_correction_task_process (UfoTask *task,
     gfloat *flat_data;
 
     gfloat corrected_value;
-    gsize n_pixels_image;
 
     priv = UFO_GR_CORRECTION_TASK_GET_PRIVATE (task);
 
-    if (priv->counter > priv->n_flat_fields)
+    if (priv->counter >= priv->n_flat_fields)
         return FALSE;
 
     dark_data = ufo_buffer_get_host_array (inputs[0], NULL);
@@ -132,8 +133,7 @@ ufo_gr_correction_task_process (UfoTask *task,
         if (priv->fix_nan_and_inf && (isnan (corrected_value) || isinf (corrected_value))) {
             corrected_value = 0.0;
         }
-
-        corrected_flats[priv->counter * priv->n_pixels_image + i] = corrected_value;
+        priv->corrected_flats[priv->counter * priv->n_pixels_image + i] = corrected_value;
     }
 
     ufo_profiler_stop (profiler, UFO_PROFILER_TIMER_CPU);
@@ -158,10 +158,10 @@ ufo_gr_correction_task_generate (UfoTask *task,
         return FALSE;
     }
 
-    printf("ufo_gr_correction_task_generate\n");
+    printf("ufo_gr_correction_task_generate  %p\n", task);
 
     out_data = ufo_buffer_get_host_array (output, NULL);
-    memcpy(out_data, corrected_flats, n_total_bytes);
+    memcpy(out_data, priv->corrected_flats, priv->n_total_bytes);
 
     priv->output_counter++;
     return TRUE;

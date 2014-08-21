@@ -50,6 +50,7 @@ endif()
 #{{{ Dependency checks
 find_package(TIFF)
 find_package(clFFT)
+find_package(FFTW3)
 
 pkg_check_modules(UCA libuca>=1.2)
 pkg_check_modules(OPENCV opencv)
@@ -82,6 +83,13 @@ if (CLFFT_FOUND)
     include_directories(${CLFFT_INCLUDE_DIRS})
     list(APPEND ufofilter_LIBS ${CLFFT_LIBRARIES})
     set(HAVE_AMD ON)
+endif ()
+
+if (FFTW3_FOUND)
+    include_directories(${FFTW3_INCLUDE_DIR})
+    list(APPEND ufofilter_LIBS ${FFTW3_LIBRARIES})
+    link_directories(${FFTW3_LINK_DIRECTORIES})
+    set(HAVE_FFTW3 ON)
 endif ()
 
 #}}}
